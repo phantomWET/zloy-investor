@@ -217,7 +217,8 @@ def extract_json(text):
 
 def api_keys():
     names = ["LLM_API_KEY"] + [f"LLM_API_KEY_{i}" for i in range(2, 10)]
-    return [os.environ[n].strip() for n in names if os.environ.get(n, "").strip()]
+    keys = [os.environ[n].strip() for n in names if os.environ.get(n, "").strip()]
+    return keys[::-1]  # новые ключи первыми: старые чаще уже упёрлись в дневной лимит
 
 
 def llm_json(system, user, temperature, mock_kind=None, timeout=25, deadline=None, rotate=0):
