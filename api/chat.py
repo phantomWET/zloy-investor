@@ -212,11 +212,17 @@ def extract_json(text):
     return json.loads(text[start:end + 1])
 
 
+def api_keys():
+    names = ["LLM_API_KEY"] + [f"LLM_API_KEY_{i}" for i in range(2, 10)]
+    return [os.environ[n].strip() for n in names if os.environ.get(n, "").strip()]
+
+
 def llm_json(system, user, temperature, mock_kind=None, timeout=25, deadline=None, rotate=0):
     if os.environ.get("LLM_MOCK") == "1":
         return mock_answer(mock_kind, user)
     base = os.environ.get("LLM_BASE_URL", "").rstrip("/")
-    key = os.environ.get("LLM_API_KEY", "")
+    keys = api_keys()
+    key = keys[0] if keys else ""
     model = os.environ.get("LLM_MODEL", "")
     if mock_kind == "report" and os.environ.get("LLM_MODEL_REPORT"):
         model = os.environ["LLM_MODEL_REPORT"]  # для отчёта можно взять более быструю модель
@@ -230,7 +236,10 @@ def llm_json(system, user, temperature, mock_kind=None, timeout=25, deadline=Non
         models = models[k:] + models[:k]  # разные части отчёта — на разные модели
     last = None
     import time
-    for m in models:
+    # Несколько ключей (LLM_API_KEY, LLM_API_KEY_2…_9): у бесплатного аккаунта дневной лимит,
+    # поэтому, когда все модели ответили 429 на одном ключе, пробуем следующий ключ.
+    combos = [(k, m) for k in keys for m in models]
+    for key, m in combos:
         if deadline and time.time() > deadline:
             break  # не превышаем лимит времени функции
         payload = {
@@ -245,11 +254,11 @@ def llm_json(system, user, temperature, mock_kind=None, timeout=25, deadline=Non
             try:
                 data = _post(f"{base}/chat/completions", payload, key, timeout)
                 result = extract_json(data["choices"][0]["message"]["content"])
-                print(f"LLM ok: {m}", file=sys.stderr)
+                print(f"LLM ok: {m}, ключ {keys.index(key) + 1}", file=sys.stderr)
                 return result
             except urllib.error.HTTPError as e:
                 last = e
-                print(f"LLM error ({m}): HTTP {e.code}", file=sys.stderr)
+                print(f"LLM error ({m}, ключ {keys.index(key) + 1}): HTTP {e.code}", file=sys.stderr)
                 if e.code == 400 and "reasoning" in payload:
                     payload.pop("reasoning")  # модель не поддерживает настройку размышлений
                     continue
@@ -558,7 +567,8 @@ def health():
         f"prompts/personas/{x}.md" for x in PERSONAS]
     return {
         "ok": True,
-        "llm_configured": bool(os.environ.get("LLM_API_KEY") and os.environ.get("LLM_BASE_URL") and os.environ.get("LLM_MODEL")),
+        "llm_configured": bool(api_keys() and os.environ.get("LLM_BASE_URL") and os.environ.get("LLM_MODEL")),
+        "keys": len(api_keys()),
         "mock": os.environ.get("LLM_MOCK") == "1",
         "files_found": {f: os.path.exists(os.path.join(ROOT, f)) for f in files},
     }
