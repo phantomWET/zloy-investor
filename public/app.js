@@ -134,6 +134,7 @@
   function chatError(text, retryFn) {
     $("chat-error-text").textContent = text;
     $("chat-error").classList.remove("hidden");
+    $("retry").textContent = "Повторить";
     state.retry = retryFn;
   }
   $("retry").onclick = function () { $("chat-error").classList.add("hidden"); if (state.retry) state.retry(); };
@@ -158,6 +159,24 @@
     var typing = bubble("печатает…", "bot", "typing");
     api("answer").then(function (d) {
       typing.remove(); setBusy(false);
+      if (!d.ok && d.reason === "bad_answer") {
+        bubble(d.message, "bot");
+        state.turns[state.turns.length - 1].a = "";
+        startTimer();
+        return;
+      }
+      if (!d.ok && d.reason === "distress") {
+        bubble(d.message, "bot");
+        clearInterval(state.timerId);
+        $("timer").textContent = "пауза";
+        $("answer-form").classList.add("hidden");
+        chatError("Тренировка на паузе. Возвращайтесь, когда будете готовы.", function () {
+          $("answer-form").classList.remove("hidden");
+          $("restart").click();
+        });
+        $("retry").textContent = "Начать заново";
+        return;
+      }
       if (!d.ok) return chatError(d.message || "Ошибка.", sendAnswer);
       if (d.reaction) bubble(d.reaction, "bot");
       if (d.done) return getReport();

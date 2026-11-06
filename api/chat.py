@@ -55,6 +55,17 @@ TOO_SHORT_MSG = (
     "Мне нечего прожаривать. Дайте хотя бы три вещи: кто ваш клиент, какую боль вы решаете "
     "и что именно делаете. Минимум 200 символов — это два-три предложения."
 )
+BAD_ANSWER_MSG = "Это не ответ. Вопрос остаётся в силе: ответьте словами, лучше с одной цифрой."
+DISTRESS_MSG = (
+    "Стоп, выхожу из роли инвестора. Похоже, сейчас тяжело — перед защитой так бывает почти у всех, "
+    "и это не про вас и не про ваш проект. Тренировка подождёт: сделайте паузу, выдохните, напишите "
+    "кому-то из близких или из команды. Если совсем плохо или есть мысли причинить себе вред — "
+    "позвоните 112 или в бесплатную психологическую помощь Москвы: 051 (с мобильного +7 495 051)."
+)
+DISTRESS_RE = re.compile(
+    r"(мне\s+(очень\s+|совсем\s+|так\s+)?плохо|вс[её]\s+брошу|не\s+хочу\s+жить|хочу\s+умереть|"
+    r"покончить\s+с\s+собой|суицид|убить\s+себя|нет\s+сил\s+жить|сил\s+больше\s+нет|"
+    r"не\s+вижу\s+смысла\s+жить)", re.I)
 TOO_LONG_MSG = (
     "Это не питч, а диплом целиком. Сократите до 5000 символов: на сцене у вас тоже не будет часа."
 )
@@ -207,6 +218,8 @@ def llm_json(system, user, temperature, mock_kind=None, timeout=25, deadline=Non
     base = os.environ.get("LLM_BASE_URL", "").rstrip("/")
     key = os.environ.get("LLM_API_KEY", "")
     model = os.environ.get("LLM_MODEL", "")
+    if mock_kind == "report" and os.environ.get("LLM_MODEL_REPORT"):
+        model = os.environ["LLM_MODEL_REPORT"]  # для отчёта можно взять более быструю модель
     if not (base and key and model):
         raise LLMError("not configured")
     # LLM_MODEL может быть списком через запятую: если модель перегружена (429)
@@ -223,6 +236,8 @@ def llm_json(system, user, temperature, mock_kind=None, timeout=25, deadline=Non
             "temperature": temperature,
             "response_format": {"type": "json_object"},
         }
+        if "openrouter.ai" in base:
+            payload["reasoning"] = {"effort": "low", "exclude": True}  # меньше «размышлений» — быстрее ответ
         for attempt in range(3):
             try:
                 data = _post(f"{base}/chat/completions", payload, key, timeout)
@@ -232,6 +247,9 @@ def llm_json(system, user, temperature, mock_kind=None, timeout=25, deadline=Non
             except urllib.error.HTTPError as e:
                 last = e
                 print(f"LLM error ({m}): HTTP {e.code}", file=sys.stderr)
+                if e.code == 400 and "reasoning" in payload:
+                    payload.pop("reasoning")  # модель не поддерживает настройку размышлений
+                    continue
                 if e.code == 400 and "response_format" in payload:
                     payload.pop("response_format")  # не все модели умеют JSON-режим
                     continue
@@ -387,6 +405,11 @@ def process(body):
         return 200, fail("too_short", TOO_SHORT_MSG)
     turns = parse_turns(body.get("turns"))
 
+    # Сильный стресс — выходим из роли сразу, без нейросети.
+    texts = [pitch] + [t["a"] for t in turns]
+    if any(DISTRESS_RE.search(x or "") for x in texts):
+        return 200, fail("distress", DISTRESS_MSG)
+
     try:
         if action == "start":
             sys_p = system_prompt(p, "prompts/questions.md")
@@ -407,6 +430,9 @@ def process(body):
             if not answered:
                 return 400, fail("error", "Нет вопроса, на который отвечать.")
             n_done = len(answered)
+            # Пустой ответ или одни эмодзи/знаки не засчитываем: номер вопроса не растёт.
+            if not re.search(r"[A-Za-zА-Яа-яЁё0-9]", answered[-1]["a"] or ""):
+                return 200, fail("bad_answer", BAD_ANSWER_MSG)
             sys_p = system_prompt(p, "prompts/questions.md")
             if n_done >= N_QUESTIONS:
                 user = (dialog_block(pitch, answered) + "\n\nСтудент ответил на последний, 5-й вопрос. "
