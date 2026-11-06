@@ -381,6 +381,24 @@ def _crit(v):
         return None
 
 
+def fallback_advice():
+    """Три выполнимых совета на случай, если модель не вернула свои (идея H5)."""
+    return [
+        {"do": "Поговорите с пятью потенциальными клиентами",
+         "how": "Спросите, как они решают задачу сейчас, сколько это стоит и что мешает; запишите ответы дословно.",
+         "result": "Пять ответов, одна цитата и одна проверяемая цифра для слайда",
+         "time": "2 ч", "criterion": 1},
+        {"do": "Посчитайте цену первого пилота",
+         "how": "Запишите три ближайшие затраты, возможную цену и число клиентов, нужное для покрытия затрат.",
+         "result": "Одна таблица с расчётом и допущениями",
+         "time": "1 ч", "criterion": 4},
+        {"do": "Проговорите вслух самый слабый ответ",
+         "how": "Сформулируйте ответ на 30 секунд с одним фактом; сделайте три дубля на диктофон.",
+         "result": "Короткий уверенный ответ для сцены",
+         "time": "20 мин", "criterion": 10},
+    ]
+
+
 def has_banned(advice, cfg):
     text = _norm(" ".join(a.get("do", "") + " " + a.get("how", "") for a in advice))
     return any(_norm(b) in text for b in cfg["banned_phrases"])
@@ -408,7 +426,7 @@ def process(body):
     # Сильный стресс — выходим из роли сразу, без нейросети.
     texts = [pitch] + [t["a"] for t in turns]
     if any(DISTRESS_RE.search(x or "") for x in texts):
-        return 200, fail("distress", DISTRESS_MSG)
+        return 200, fail("support", DISTRESS_MSG)
 
     try:
         if action == "start":
@@ -432,7 +450,7 @@ def process(body):
             n_done = len(answered)
             # Пустой ответ или одни эмодзи/знаки не засчитываем: номер вопроса не растёт.
             if not re.search(r"[A-Za-zА-Яа-яЁё0-9]", answered[-1]["a"] or ""):
-                return 200, fail("bad_answer", BAD_ANSWER_MSG)
+                return 200, fail("invalid_answer", BAD_ANSWER_MSG)
             sys_p = system_prompt(p, "prompts/questions.md")
             if n_done >= N_QUESTIONS:
                 user = (dialog_block(pitch, answered) + "\n\nСтудент ответил на последний, 5-й вопрос. "
@@ -487,6 +505,8 @@ def process(body):
             if isinstance(advice, dict) and advice.get("advice"):
                 raw["advice"] = advice["advice"]
             report = build_report(raw, pitch, answered, p, cfg)
+            if len(report["advice"]) < 3:
+                report["advice"] = (report["advice"] + fallback_advice())[:3]
             print(f"report in {time.time() - t0:.1f}s, advice={len(report['advice'])}", file=sys.stderr)
             return 200, report
 

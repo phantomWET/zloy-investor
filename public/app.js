@@ -15,6 +15,9 @@
 
   var state = { persona: null, focus: [], pitch: "", turns: [], busy: false, retry: null, timerId: null };
   var $ = function (id) { return document.getElementById(id); };
+  fetch("/api/chat").then(function (r) { return r.json(); }).then(function (h) {
+    if ($("mode")) $("mode").textContent = h.mock ? "ДЕМО-РЕЖИМ: ИИ НЕ ПОДКЛЮЧЁН" : (h.llm_configured ? "" : "ИИ НЕ ПОДКЛЮЧЁН");
+  }).catch(function () { if ($("mode")) $("mode").textContent = "СЕРВЕР НЕДОСТУПЕН"; });
 
   function el(tag, cls, text) {
     var e = document.createElement(tag);
@@ -159,13 +162,13 @@
     var typing = bubble("печатает…", "bot", "typing");
     api("answer").then(function (d) {
       typing.remove(); setBusy(false);
-      if (!d.ok && d.reason === "bad_answer") {
+      if (!d.ok && d.reason === "invalid_answer") {
         bubble(d.message, "bot");
         state.turns[state.turns.length - 1].a = "";
         startTimer();
         return;
       }
-      if (!d.ok && d.reason === "distress") {
+      if (!d.ok && d.reason === "support") {
         bubble(d.message, "bot");
         clearInterval(state.timerId);
         $("timer").textContent = "пауза";
