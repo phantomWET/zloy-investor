@@ -456,18 +456,38 @@ def process(body):
             cfg = load_config()
             sys_p = system_prompt(p, "prompts/report.md")
             names = "; ".join(f"{i} — {n}" for i, n in enumerate(cfg["_names"], 1))
-            user = (dialog_block(pitch, answered) + f"\n\nКритерии: {names}.\n"
-                    "Поставь оценки и дай ровно 3 совета. Верни JSON: {\"criteria\": [10 объектов {id, pitch, final, quote, comment}], "
-                    "\"advice\": [3 объекта {do, how, result, time, criterion}]}.")
+            block = dialog_block(pitch, answered) + f"\n\nКритерии: {names}.\n"
+            user_scores = block + ("Сейчас нужны ТОЛЬКО оценки, советы не пиши. Верни JSON: "
+                                   "{\"criteria\": [10 объектов {id, pitch, final, quote, comment}]}.")
+            user_advice = block + ("Сейчас нужны ТОЛЬКО ровно 3 совета, оценки не пиши. Выбери самые слабые и самые важные "
+                                   "для тебя места из питча и ответов. Верни JSON: "
+                                   "{\"advice\": [3 объекта {do, how, result, time, criterion}]}.")
+            # Оценки и советы считаем параллельно: так отчёт укладывается в лимит времени.
+            import threading
             import time
             t0 = time.time()
-            raw = llm_json(sys_p, user, 0.2, "report", timeout=90, deadline=t0 + 150)
+            results = {}
+
+            def run(key, text):
+                try:
+                    results[key] = llm_json(sys_p, text, 0.2, "report", timeout=50, deadline=t0 + 45)
+                except Exception as e:  # noqa: BLE001 — ошибку одной части обработаем ниже
+                    results[key] = e
+
+            threads = [threading.Thread(target=run, args=("scores", user_scores)),
+                       threading.Thread(target=run, args=("advice", user_advice))]
+            for th in threads:
+                th.start()
+            for th in threads:
+                th.join(timeout=max(1, 57 - (time.time() - t0)))
+            scores, advice = results.get("scores"), results.get("advice")
+            if not isinstance(scores, dict):
+                raise LLMError("scores failed")
+            raw = dict(scores)
+            if isinstance(advice, dict) and advice.get("advice"):
+                raw["advice"] = advice["advice"]
             report = build_report(raw, pitch, answered, p, cfg)
-            if (has_banned(report["advice"], cfg) or len(report["advice"]) < 3) and time.time() - t0 < 60:
-                raw2 = llm_json(sys_p, user + "\nСоветы были слишком общими. Каждый совет — конкретное действие на 1–3 дня, без запрещённых фраз.", 0.3, "report", timeout=90, deadline=t0 + 200)
-                report2 = build_report(raw2, pitch, answered, p, cfg)
-                if len(report2["advice"]) >= 3:
-                    report["advice"] = report2["advice"]
+            print(f"report in {time.time() - t0:.1f}s, advice={len(report['advice'])}", file=sys.stderr)
             return 200, report
 
         return 400, fail("error", "Неизвестное действие.")
