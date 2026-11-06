@@ -1,6 +1,7 @@
 """Deterministic H5 checks. Run: python -m unittest discover -s tests -v"""
 import os
 import unittest
+from unittest.mock import patch
 
 os.environ["LLM_MOCK"] = "1"
 from api import chat
@@ -17,6 +18,26 @@ def request(action="start", pitch=PITCH, turns=None):
     return chat.process({"action": action, "persona": {"id": "angel"}, "pitch": pitch, "turns": turns or []})
 
 class BoundaryTests(unittest.TestCase):
+    def test_report_and_score_fill_advice_without_repeating_criteria(self):
+        turns = [{"q": f"Вопрос {i}", "a": "Не знаю"} for i in range(1, 6)]
+        candidates = [
+            {"do": "Сравните два сегмента", "criterion": 99},
+            {"do": "Опишите текущий процесс клиента", "criterion": 1},
+            {"do": "Снова опишите текущий процесс", "criterion": "1"},
+            {"do": "Проверьте главный риск", "criterion": 7},
+        ]
+        model_output = {"criteria": [{"id": 1, "pitch": 1, "final": 1}], "advice": candidates}
+        body = {"action": "report", "pitch": PITCH, "turns": turns}
+        with patch.object(chat, "llm_json", return_value=model_output):
+            _, advice_part = chat.process(dict(body, part="advice"))
+            _, full = chat.process(body)
+        _, scored = chat.process(dict(body, action="score", advice=candidates))
+
+        for result in (advice_part, full, scored):
+            self.assertTrue(result["ok"])
+            self.assertEqual([a["criterion"] for a in result["advice"]], [1, 7, 4])
+            self.assertEqual(result["advice"][0]["do"], candidates[1]["do"])
+
     def test_empty_pitch(self):
         self.assertEqual(request(pitch="")[1]["reason"], "too_short")
 

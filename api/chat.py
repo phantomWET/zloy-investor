@@ -380,15 +380,29 @@ def build_report(raw, pitch, turns, p, cfg):
     w_sum = sum(w[i] for i in rated) or 1
     total = round(sum(w[i] * criteria[i]["final"] / 3 for i in rated) * 100 / w_sum) if rated else 0
     total_pitch = round(sum(w[i] * criteria[i]["pitch"] / 3 for i in rated) * 100 / w_sum) if rated else 0
-    advice = []
-    for a in raw.get("advice", []) if isinstance(raw.get("advice"), list) else []:
-        if isinstance(a, dict):
-            item = {k: str(a.get(k) or "")[:400] for k in ("do", "how", "result", "time")}
-            item["criterion"] = _crit(a.get("criterion"))
-            if item["do"]:
-                advice.append(item)
     return {"ok": True, "total": total, "total_pitch": total_pitch, "verdict": verdict_for(total, cfg), "rated": len(rated),
-            "criteria": criteria, "advice": advice[:3]}
+            "criteria": criteria, "advice": select_advice(raw.get("advice"))}
+
+
+def select_advice(raw):
+    candidates = raw if isinstance(raw, list) else []
+    advice = []
+    used_criteria = set()
+    for candidate in candidates + fallback_advice():
+        if not isinstance(candidate, dict):
+            continue
+        criterion = _crit(candidate.get("criterion"))
+        if criterion is None or criterion in used_criteria:
+            continue
+        item = {key: str(candidate.get(key) or "").strip()[:400] for key in ("do", "how", "result", "time")}
+        if not item["do"]:
+            continue
+        item["criterion"] = criterion
+        advice.append(item)
+        used_criteria.add(criterion)
+        if len(advice) == 3:
+            break
+    return advice
 
 
 def _crit(v):
@@ -410,9 +424,9 @@ def fallback_advice():
          "how": "Запишите три ближайшие затраты, возможную цену и число клиентов, нужное для покрытия затрат.",
          "result": "Одна таблица с расчётом и допущениями",
          "time": "1 ч", "criterion": 4},
-        {"do": "Проговорите вслух самый слабый ответ",
-         "how": "Сформулируйте ответ на 30 секунд с одним фактом; сделайте три дубля на диктофон.",
-         "result": "Короткий уверенный ответ для сцены",
+        {"do": "Сведите запрос инвестору в одну строку",
+         "how": "Назовите нужный ресурс, ближайший этап и измеримый результат этого этапа.",
+         "result": "Одна строка для слайда о том, что даст поддержка",
          "time": "20 мин", "criterion": 10},
     ]
 
@@ -511,7 +525,7 @@ def process(body):
                 key = "advice" if part == "advice" else "criteria"
                 items = data.get(key) if isinstance(data.get(key), list) else []
                 print(f"report part {part} in {time.time() - t0:.1f}s", file=sys.stderr)
-                return 200, {"ok": True, key: items[:10]}
+                return 200, {"ok": True, key: select_advice(items) if key == "advice" else items[:10]}
             # Три части отчёта считаем параллельно и на разных моделях: так он укладывается в лимит времени.
             import threading
             import time
@@ -543,8 +557,6 @@ def process(body):
             if isinstance(adv, dict) and isinstance(adv.get("advice"), list):
                 raw["advice"] = adv["advice"]
             report = build_report(raw, pitch, answered, p, cfg)
-            if len(report["advice"]) < 3:
-                report["advice"] = (report["advice"] + fallback_advice())[:3]
             print(f"report in {time.time() - t0:.1f}s, advice={len(report['advice'])}", file=sys.stderr)
             return 200, report
 
@@ -556,8 +568,6 @@ def process(body):
             crit = body.get("criteria") if isinstance(body.get("criteria"), list) else []
             adv = body.get("advice") if isinstance(body.get("advice"), list) else []
             report = build_report({"criteria": crit[:20], "advice": adv[:5]}, pitch, answered, p, cfg)
-            if len(report["advice"]) < 3:
-                report["advice"] = (report["advice"] + fallback_advice())[:3]
             return 200, report
 
         return 400, fail("error", "Неизвестное действие.")
