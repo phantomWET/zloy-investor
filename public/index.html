@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Злой инвестор</title>
+  <meta name="description" content="ИИ-тренажёр: 5 неудобных вопросов, честная оценка и 3 совета до выхода на сцену">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="avatar" id="top-avatar">😈</div>
+    <div>
+      <div class="title">Злой инвестор</div>
+      <div class="status" id="status">тренажёр перед защитой</div>
+    </div>
+  </header>
+
+  <main>
+    <!-- 1. Выбор инвестора -->
+    <section id="s-persona" class="screen active">
+      <h1>Кого боитесь больше всего?</h1>
+      <p class="muted">Выберите инвестора. Он задаст 5 неудобных вопросов, поставит оценку по критериям «Стартап как диплом» и даст 3 совета, которые можно успеть до сцены.</p>
+      <div class="cards" id="persona-cards"></div>
+      <div id="custom-box" class="custom hidden">
+        <label>Кто он<input id="c-who" maxlength="300" placeholder="Например: бывший фаундер, прогорел на студенческом стартапе"></label>
+        <label>Чего хочет<input id="c-wants" maxlength="300" placeholder="Увидеть, что вы не повторите его ошибки"></label>
+        <label>Чего боится<input id="c-fears" maxlength="300" placeholder="Стартапа ради диплома"></label>
+        <label>Как себя ведёт<input id="c-behavior" maxlength="300" placeholder="Рассказывает истории провалов, давит на цифры"></label>
+        <div class="muted small">Что для него важнее всего (до 3):</div>
+        <div id="focus-list" class="focus"></div>
+      </div>
+      <button class="btn" id="to-pitch" disabled>Дальше</button>
+    </section>
+
+    <!-- 2. Питч -->
+    <section id="s-pitch" class="screen">
+      <h1>Ваш питч</h1>
+      <p class="muted">Кто клиент, какая боль, что вы делаете, как зарабатываете, что уже проверили. От 200 до 5000 символов.</p>
+      <textarea id="pitch" maxlength="5000" rows="10" placeholder="Вставьте описание стартапа…"></textarea>
+      <div class="row"><span class="muted small" id="pitch-count">0 / 5000</span></div>
+      <div class="error hidden" id="pitch-error"></div>
+      <button class="btn" id="start">Прожарить 🔥</button>
+      <button class="btn ghost" id="back-persona">← Другой инвестор</button>
+    </section>
+
+    <!-- 3. Чат -->
+    <section id="s-chat" class="screen">
+      <div class="progress"><span id="q-num">Вопрос 1 из 5</span><span id="timer">60</span></div>
+      <div id="chat" class="chat" aria-live="polite"></div>
+      <div class="error hidden" id="chat-error"><span id="chat-error-text"></span> <button class="link" id="retry">Повторить</button></div>
+      <form id="answer-form" class="composer">
+        <textarea id="answer" maxlength="1000" rows="2" placeholder="Ваш ответ… коротко и с цифрами"></textarea>
+        <button class="send" id="send" aria-label="Отправить">↑</button>
+      </form>
+    </section>
+
+    <!-- 4. Отчёт -->
+    <section id="s-report" class="screen">
+      <div class="score-box">
+        <div class="score" id="total">0</div>
+        <div class="of">из 100</div>
+        <div class="verdict" id="verdict"></div>
+        <div class="muted small" id="delta"></div>
+      </div>
+      <h2>3 совета до выхода на сцену</h2>
+      <div id="advice"></div>
+      <h2>Оценка по критериям</h2>
+      <p class="muted small">Светлая полоса — балл после питча, яркая — после ваших ответов. Шкала 0–3: 0 — не сказано, 1 — заявлено без доказательств, 2 — есть цифры, 3 — подтверждено действием.</p>
+      <div id="criteria"></div>
+      <button class="btn" id="round2">Второй раунд: поправить питч</button>
+      <button class="btn ghost" id="restart">Начать заново</button>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

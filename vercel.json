@@ -1,0 +1,9 @@
+{
+  "outputDirectory": "public",
+  "functions": {
+    "api/chat.py": {
+      "maxDuration": 60,
+      "includeFiles": "{prompts,config}/**"
+    }
+  }
+}
