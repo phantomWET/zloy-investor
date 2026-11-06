@@ -212,7 +212,7 @@ def extract_json(text):
     return json.loads(text[start:end + 1])
 
 
-def llm_json(system, user, temperature, mock_kind=None, timeout=25, deadline=None):
+def llm_json(system, user, temperature, mock_kind=None, timeout=25, deadline=None, rotate=0):
     if os.environ.get("LLM_MOCK") == "1":
         return mock_answer(mock_kind, user)
     base = os.environ.get("LLM_BASE_URL", "").rstrip("/")
@@ -225,6 +225,9 @@ def llm_json(system, user, temperature, mock_kind=None, timeout=25, deadline=Non
     # LLM_MODEL может быть списком через запятую: если модель перегружена (429)
     # или сломалась, сервер сразу пробует следующую.
     models = [m.strip() for m in model.split(",") if m.strip()]
+    if rotate and models:
+        k = rotate % len(models)
+        models = models[k:] + models[:k]  # разные части отчёта — на разные модели
     last = None
     import time
     for m in models:
@@ -348,7 +351,7 @@ def build_report(raw, pitch, turns, p, cfg):
     for i in range(1, 11):
         c = by_id.get(i, {})
         quote = str(c.get("quote") or "")[:300]
-        comment = str(c.get("comment") or "")[:400]
+        comment = str(c.get("comment") or "")[:400] if c else "Инвестор не успел оценить этот критерий — повторите отчёт."
         s_pitch, s_final = _score(c.get("pitch")), _score(c.get("final"))
         # Балл 2–3 только с цитатой, которая реально есть в тексте студента.
         if s_pitch > 1 and not quote_found(quote, pitch):
@@ -475,35 +478,42 @@ def process(body):
             sys_p = system_prompt(p, "prompts/report.md")
             names = "; ".join(f"{i} — {n}" for i, n in enumerate(cfg["_names"], 1))
             block = dialog_block(pitch, answered) + f"\n\nКритерии: {names}.\n"
-            user_scores = block + ("Сейчас нужны ТОЛЬКО оценки, советы не пиши. Верни JSON: "
-                                   "{\"criteria\": [10 объектов {id, pitch, final, quote, comment}]}.")
+            def scores_prompt(ids):
+                return block + (f"Сейчас оцени ТОЛЬКО критерии с id {ids[0]}–{ids[-1]}, советы не пиши. Коротко. Верни JSON: "
+                                "{\"criteria\": [объекты {id, pitch, final, quote, comment}]}.")
             user_advice = block + ("Сейчас нужны ТОЛЬКО ровно 3 совета, оценки не пиши. Выбери самые слабые и самые важные "
                                    "для тебя места из питча и ответов. Верни JSON: "
                                    "{\"advice\": [3 объекта {do, how, result, time, criterion}]}.")
-            # Оценки и советы считаем параллельно: так отчёт укладывается в лимит времени.
+            # Три части отчёта считаем параллельно и на разных моделях: так он укладывается в лимит времени.
             import threading
             import time
             t0 = time.time()
             results = {}
+            jobs = [("s1", scores_prompt([1, 2, 3, 4, 5]), 0), ("s2", scores_prompt([6, 7, 8, 9, 10]), 1),
+                    ("adv", user_advice, 2)]
 
-            def run(key, text):
+            def run(key, text, rot):
                 try:
-                    results[key] = llm_json(sys_p, text, 0.2, "report", timeout=50, deadline=t0 + 45)
+                    results[key] = llm_json(sys_p, text, 0.2, "report", timeout=48, deadline=t0 + 40, rotate=rot)
                 except Exception as e:  # noqa: BLE001 — ошибку одной части обработаем ниже
                     results[key] = e
 
-            threads = [threading.Thread(target=run, args=("scores", user_scores)),
-                       threading.Thread(target=run, args=("advice", user_advice))]
+            threads = [threading.Thread(target=run, args=job, daemon=True) for job in jobs]
             for th in threads:
                 th.start()
             for th in threads:
-                th.join(timeout=max(1, 57 - (time.time() - t0)))
-            scores, advice = results.get("scores"), results.get("advice")
-            if not isinstance(scores, dict):
+                th.join(timeout=max(1, 55 - (time.time() - t0)))
+            crit = []
+            for key in ("s1", "s2"):
+                part = results.get(key)
+                if isinstance(part, dict) and isinstance(part.get("criteria"), list):
+                    crit += part["criteria"]
+            if not crit:
                 raise LLMError("scores failed")
-            raw = dict(scores)
-            if isinstance(advice, dict) and advice.get("advice"):
-                raw["advice"] = advice["advice"]
+            raw = {"criteria": crit, "advice": []}
+            adv = results.get("adv")
+            if isinstance(adv, dict) and isinstance(adv.get("advice"), list):
+                raw["advice"] = adv["advice"]
             report = build_report(raw, pitch, answered, p, cfg)
             if len(report["advice"]) < 3:
                 report["advice"] = (report["advice"] + fallback_advice())[:3]
