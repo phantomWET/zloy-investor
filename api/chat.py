@@ -491,7 +491,7 @@ def process(body):
                 t0 = time.time()
                 text = {"1-5": scores_prompt([1, 2, 3, 4, 5]), "6-10": scores_prompt([6, 7, 8, 9, 10]),
                         "advice": user_advice}[part]
-                rot = {"1-5": 0, "6-10": 1, "advice": 2}[part] + int(body.get("attempt") or 0)
+                rot = int(body.get("attempt") or 0)  # все части — на самую быструю модель, повтор — на следующую
                 data = llm_json(sys_p, text, 0.2, "report", timeout=50, deadline=t0 + 45, rotate=rot)
                 key = "advice" if part == "advice" else "criteria"
                 items = data.get(key) if isinstance(data.get(key), list) else []
