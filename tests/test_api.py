@@ -74,3 +74,19 @@ class BoundaryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PartialReportTests(unittest.TestCase):
+    """H1: если одна часть отчёта не пришла, итог считается по оценённым критериям и помечается неполным."""
+
+    def test_partial_scores_are_not_zeros(self):
+        turns = [{"q": f"Вопрос {i}", "a": "Мы поговорили с 12 студентами"} for i in range(1, 6)]
+        full = [{"id": i, "pitch": 1, "final": 1, "quote": "", "comment": "ok"} for i in range(1, 11)]
+        body = {"action": "score", "persona": {"id": "angel"}, "pitch": PITCH, "turns": turns}
+        _, all10 = chat.process(dict(body, criteria=full))
+        _, half = chat.process(dict(body, criteria=full[:5]))
+        self.assertEqual(all10["rated"], 10)
+        self.assertEqual(half["rated"], 5)
+        self.assertEqual(all10["total"], 33)
+        self.assertEqual(half["total"], 33)  # не занижается нулями
+        self.assertEqual(len(half["advice"]), 3)

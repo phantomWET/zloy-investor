@@ -221,6 +221,7 @@
     var parts = [];
     if (typeof d.total_pitch === "number") parts.push("После питча: " + d.total_pitch + " → после ответов: " + d.total);
     if (prev !== null && prev !== "" && store("zi_round") === "2") parts.push("Прошлый раунд: " + prev + " → сейчас: " + d.total);
+    if (typeof d.rated === "number" && d.rated < 10) parts.unshift("⚠ Оценено " + d.rated + " из 10 критериев — итог неполный, пройдите отчёт ещё раз");
     $("delta").textContent = parts.join(" · ");
     store("zi_last_total", String(d.total));
 

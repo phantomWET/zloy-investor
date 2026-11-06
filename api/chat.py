@@ -363,8 +363,11 @@ def build_report(raw, pitch, turns, p, cfg):
                          "quote": quote if quote_found(quote, pitch + "\n" + answers) else "",
                          "comment": comment})
     w = weights_for(p, cfg)
-    total = round(sum(w[i] * criteria[i]["final"] / 3 for i in range(10)))
-    total_pitch = round(sum(w[i] * criteria[i]["pitch"] / 3 for i in range(10)))
+    # Итог считаем только по оценённым критериям: неоценённый не равен нулю (замечание H5).
+    rated = [i for i in range(10) if (i + 1) in by_id]
+    w_sum = sum(w[i] for i in rated) or 1
+    total = round(sum(w[i] * criteria[i]["final"] / 3 for i in rated) * 100 / w_sum) if rated else 0
+    total_pitch = round(sum(w[i] * criteria[i]["pitch"] / 3 for i in rated) * 100 / w_sum) if rated else 0
     advice = []
     for a in raw.get("advice", []) if isinstance(raw.get("advice"), list) else []:
         if isinstance(a, dict):
@@ -372,7 +375,7 @@ def build_report(raw, pitch, turns, p, cfg):
             item["criterion"] = _crit(a.get("criterion"))
             if item["do"]:
                 advice.append(item)
-    return {"ok": True, "total": total, "total_pitch": total_pitch, "verdict": verdict_for(total, cfg),
+    return {"ok": True, "total": total, "total_pitch": total_pitch, "verdict": verdict_for(total, cfg), "rated": len(rated),
             "criteria": criteria, "advice": advice[:3]}
 
 
