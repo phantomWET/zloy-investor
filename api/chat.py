@@ -484,6 +484,19 @@ def process(body):
             user_advice = block + ("Сейчас нужны ТОЛЬКО ровно 3 совета, оценки не пиши. Выбери самые слабые и самые важные "
                                    "для тебя места из питча и ответов. Верни JSON: "
                                    "{\"advice\": [3 объекта {do, how, result, time, criterion}]}.")
+            # Одна часть отчёта за запрос: сайт шлёт 3 части параллельно, у каждой своё окно времени.
+            part = body.get("part")
+            if part in ("1-5", "6-10", "advice"):
+                import time
+                t0 = time.time()
+                text = {"1-5": scores_prompt([1, 2, 3, 4, 5]), "6-10": scores_prompt([6, 7, 8, 9, 10]),
+                        "advice": user_advice}[part]
+                rot = {"1-5": 0, "6-10": 1, "advice": 2}[part] + int(body.get("attempt") or 0)
+                data = llm_json(sys_p, text, 0.2, "report", timeout=50, deadline=t0 + 45, rotate=rot)
+                key = "advice" if part == "advice" else "criteria"
+                items = data.get(key) if isinstance(data.get(key), list) else []
+                print(f"report part {part} in {time.time() - t0:.1f}s", file=sys.stderr)
+                return 200, {"ok": True, key: items[:10]}
             # Три части отчёта считаем параллельно и на разных моделях: так он укладывается в лимит времени.
             import threading
             import time
@@ -518,6 +531,18 @@ def process(body):
             if len(report["advice"]) < 3:
                 report["advice"] = (report["advice"] + fallback_advice())[:3]
             print(f"report in {time.time() - t0:.1f}s, advice={len(report['advice'])}", file=sys.stderr)
+            return 200, report
+
+        if action == "score":
+            answered = [t for t in turns if t["q"]]
+            if len(answered) < N_QUESTIONS:
+                return 400, fail("error", "Сначала ответьте на все 5 вопросов.")
+            cfg = load_config()
+            crit = body.get("criteria") if isinstance(body.get("criteria"), list) else []
+            adv = body.get("advice") if isinstance(body.get("advice"), list) else []
+            report = build_report({"criteria": crit[:20], "advice": adv[:5]}, pitch, answered, p, cfg)
+            if len(report["advice"]) < 3:
+                report["advice"] = (report["advice"] + fallback_advice())[:3]
             return 200, report
 
         return 400, fail("error", "Неизвестное действие.")

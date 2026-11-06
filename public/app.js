@@ -186,14 +186,30 @@
       ask(d.question, d.n);
     });
   }
+  function post(payload) {
+    payload.persona = personaPayload(); payload.pitch = state.pitch; payload.turns = state.turns;
+    return fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
+      .then(function (r) { return r.json(); })
+      .catch(function () { return { ok: false, reason: "network", message: "Нет связи с сервером." }; });
+  }
+  // Отчёт собирается из 3 частей, которые считаются параллельно; неудачная часть повторяется один раз.
+  function reportPart(part) {
+    return post({ action: "report", part: part, attempt: 0 }).then(function (d) {
+      return d.ok ? d : post({ action: "report", part: part, attempt: 1 });
+    });
+  }
   function getReport() {
     setBusy(true);
     $("q-num").textContent = "Инвестор считает баллы…";
-    var typing = bubble("считает баллы…", "bot", "typing");
-    api("report").then(function (d) {
-      typing.remove(); setBusy(false);
-      if (!d.ok) return chatError(d.message || "Ошибка.", getReport);
-      renderReport(d);
+    var typing = bubble("считает баллы… это до минуты", "bot", "typing");
+    Promise.all([reportPart("1-5"), reportPart("6-10"), reportPart("advice")]).then(function (rs) {
+      var crit = [].concat(rs[0].criteria || [], rs[1].criteria || []);
+      if (!crit.length) { typing.remove(); setBusy(false); return chatError("Инвестор не успел посчитать баллы. Нажмите «Повторить».", getReport); }
+      return post({ action: "score", criteria: crit, advice: rs[2].advice || [] }).then(function (d) {
+        typing.remove(); setBusy(false);
+        if (!d.ok) return chatError(d.message || "Ошибка.", getReport);
+        renderReport(d);
+      });
     });
   }
 
