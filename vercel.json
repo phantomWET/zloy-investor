@@ -2,7 +2,7 @@
   "outputDirectory": "public",
   "functions": {
     "api/chat.py": {
-      "maxDuration": 60,
+      "maxDuration": 300,
       "includeFiles": "{prompts,config}/**"
     }
   }

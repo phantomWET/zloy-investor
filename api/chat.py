@@ -176,7 +176,7 @@ class LLMError(Exception):
     pass
 
 
-def _post(url, payload, key):
+def _post(url, payload, key, timeout=25):
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
@@ -188,7 +188,7 @@ def _post(url, payload, key):
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=25) as r:
+    with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode("utf-8"))
 
 
@@ -201,7 +201,7 @@ def extract_json(text):
     return json.loads(text[start:end + 1])
 
 
-def llm_json(system, user, temperature, mock_kind=None):
+def llm_json(system, user, temperature, mock_kind=None, timeout=25, deadline=None):
     if os.environ.get("LLM_MOCK") == "1":
         return mock_answer(mock_kind, user)
     base = os.environ.get("LLM_BASE_URL", "").rstrip("/")
@@ -213,7 +213,10 @@ def llm_json(system, user, temperature, mock_kind=None):
     # или сломалась, сервер сразу пробует следующую.
     models = [m.strip() for m in model.split(",") if m.strip()]
     last = None
+    import time
     for m in models:
+        if deadline and time.time() > deadline:
+            break  # не превышаем лимит времени функции
         payload = {
             "model": m,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
@@ -222,7 +225,7 @@ def llm_json(system, user, temperature, mock_kind=None):
         }
         for attempt in range(3):
             try:
-                data = _post(f"{base}/chat/completions", payload, key)
+                data = _post(f"{base}/chat/completions", payload, key, timeout)
                 result = extract_json(data["choices"][0]["message"]["content"])
                 print(f"LLM ok: {m}", file=sys.stderr)
                 return result
@@ -430,10 +433,12 @@ def process(body):
             user = (dialog_block(pitch, answered) + f"\n\nКритерии: {names}.\n"
                     "Поставь оценки и дай ровно 3 совета. Верни JSON: {\"criteria\": [10 объектов {id, pitch, final, quote, comment}], "
                     "\"advice\": [3 объекта {do, how, result, time, criterion}]}.")
-            raw = llm_json(sys_p, user, 0.2, "report")
+            import time
+            t0 = time.time()
+            raw = llm_json(sys_p, user, 0.2, "report", timeout=90, deadline=t0 + 150)
             report = build_report(raw, pitch, answered, p, cfg)
-            if has_banned(report["advice"], cfg) or len(report["advice"]) < 3:
-                raw2 = llm_json(sys_p, user + "\nСоветы были слишком общими. Каждый совет — конкретное действие на 1–3 дня, без запрещённых фраз.", 0.3, "report")
+            if (has_banned(report["advice"], cfg) or len(report["advice"]) < 3) and time.time() - t0 < 60:
+                raw2 = llm_json(sys_p, user + "\nСоветы были слишком общими. Каждый совет — конкретное действие на 1–3 дня, без запрещённых фраз.", 0.3, "report", timeout=90, deadline=t0 + 200)
                 report2 = build_report(raw2, pitch, answered, p, cfg)
                 if len(report2["advice"]) >= 3:
                     report["advice"] = report2["advice"]
