@@ -188,7 +188,7 @@ def _post(url, payload, key):
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=40) as r:
+    with urllib.request.urlopen(req, timeout=25) as r:
         return json.loads(r.read().decode("utf-8"))
 
 
@@ -209,29 +209,40 @@ def llm_json(system, user, temperature, mock_kind=None):
     model = os.environ.get("LLM_MODEL", "")
     if not (base and key and model):
         raise LLMError("not configured")
-    payload = {
-        "model": model,
-        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-        "temperature": temperature,
-        "response_format": {"type": "json_object"},
-    }
+    # LLM_MODEL может быть списком через запятую: если модель перегружена (429)
+    # или сломалась, сервер сразу пробует следующую.
+    models = [m.strip() for m in model.split(",") if m.strip()]
     last = None
-    for attempt in range(2):
-        try:
-            data = _post(f"{base}/chat/completions", payload, key)
-            return extract_json(data["choices"][0]["message"]["content"])
-        except urllib.error.HTTPError as e:
-            last = e
-            if e.code == 400 and "response_format" in payload:
-                payload.pop("response_format")  # не все модели умеют JSON-режим
-                continue
-            if e.code in (429, 500, 502, 503) and attempt == 0:
-                continue
-            break
-        except (KeyError, IndexError, ValueError, LLMError, urllib.error.URLError, TimeoutError) as e:
-            last = e
-            continue
-    print(f"LLM error: {type(last).__name__}: {str(last)[:200]}", file=sys.stderr)
+    for m in models:
+        payload = {
+            "model": m,
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            "temperature": temperature,
+            "response_format": {"type": "json_object"},
+        }
+        for attempt in range(3):
+            try:
+                data = _post(f"{base}/chat/completions", payload, key)
+                result = extract_json(data["choices"][0]["message"]["content"])
+                print(f"LLM ok: {m}", file=sys.stderr)
+                return result
+            except urllib.error.HTTPError as e:
+                last = e
+                print(f"LLM error ({m}): HTTP {e.code}", file=sys.stderr)
+                if e.code == 400 and "response_format" in payload:
+                    payload.pop("response_format")  # не все модели умеют JSON-режим
+                    continue
+                break  # 429, 5xx, 401 — к следующей модели
+            except (KeyError, IndexError, ValueError, LLMError) as e:
+                last = e  # модель ответила не тем — одна повторная попытка
+                print(f"LLM bad output ({m}): {type(e).__name__}", file=sys.stderr)
+                if attempt >= 1:
+                    break
+            except (urllib.error.URLError, TimeoutError, OSError) as e:
+                last = e
+                print(f"LLM network ({m}): {type(e).__name__}", file=sys.stderr)
+                break
+    print(f"LLM failed: {type(last).__name__}: {str(last)[:200]}", file=sys.stderr)
     raise LLMError("llm failed")
 
 
