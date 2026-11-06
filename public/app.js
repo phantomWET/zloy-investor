@@ -201,7 +201,7 @@
   function getReport() {
     setBusy(true);
     $("q-num").textContent = "Инвестор считает баллы…";
-    var typing = bubble("считает баллы… это до минуты", "bot", "typing");
+    var typing = bubble("считает баллы… обычно 1–2 минуты", "bot", "typing");
     Promise.all([reportPart("1-5"), reportPart("6-10"), reportPart("advice")]).then(function (rs) {
       var crit = [].concat(rs[0].criteria || [], rs[1].criteria || []);
       if (!crit.length) { typing.remove(); setBusy(false); return chatError("Инвестор не успел посчитать баллы. Нажмите «Повторить».", getReport); }
